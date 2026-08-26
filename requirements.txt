@@ -1,0 +1,11 @@
+streamlit
+pymupdf
+pytesseract
+pillow
+nltk
+vaderSentiment
+langchain
+langchain-community
+langchain-groq
+faiss-cpu
+sentence-transformers
