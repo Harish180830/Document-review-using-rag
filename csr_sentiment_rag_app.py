@@ -152,6 +152,8 @@ section[data-testid="stSidebar"] {
 def render_neuron_background():
     # Injects an animated neural-network canvas as a fixed full-page background
     # by breaking out into the parent document (Streamlit iframes are same-origin).
+    # Glowing nodes of varied size, soft gradient connections, and gentle
+    # mouse-reactive drift for a more polished, "premium" feel.
     components.html("""
     <script>
     (function() {
@@ -167,42 +169,79 @@ def render_neuron_background():
         canvas.style.height = '100vh';
         canvas.style.zIndex = '-1';
         canvas.style.pointerEvents = 'none';
-        canvas.style.opacity = '0.55';
+        canvas.style.opacity = '0';
+        canvas.style.transition = 'opacity 1.4s ease';
         doc.body.appendChild(canvas);
+        requestAnimationFrame(() => { canvas.style.opacity = '0.7'; });
 
         const ctx = canvas.getContext('2d');
         let w, h, nodes;
+        const mouse = { x: -9999, y: -9999 };
 
         function resize() {
-            w = canvas.width = window.parent.innerWidth;
-            h = canvas.height = window.parent.innerHeight;
+            const dpr = window.parent.devicePixelRatio || 1;
+            w = window.parent.innerWidth;
+            h = window.parent.innerHeight;
+            canvas.width = w * dpr;
+            canvas.height = h * dpr;
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         }
         resize();
         window.parent.addEventListener('resize', resize);
+        window.parent.document.addEventListener('mousemove', (e) => {
+            mouse.x = e.clientX;
+            mouse.y = e.clientY;
+        });
 
-        const NODE_COUNT = 70;
-        nodes = Array.from({length: NODE_COUNT}, () => ({
-            x: Math.random() * w,
-            y: Math.random() * h,
-            vx: (Math.random() - 0.5) * 0.35,
-            vy: (Math.random() - 0.5) * 0.35,
-        }));
+        const NODE_COUNT = 65;
+        const HUB_RATIO = 0.14;  // fraction of nodes rendered as larger glowing hubs
+        nodes = Array.from({length: NODE_COUNT}, () => {
+            const isHub = Math.random() < HUB_RATIO;
+            return {
+                x: Math.random() * w,
+                y: Math.random() * h,
+                vx: (Math.random() - 0.5) * (isHub ? 0.12 : 0.3),
+                vy: (Math.random() - 0.5) * (isHub ? 0.12 : 0.3),
+                r: isHub ? 3 + Math.random() * 1.8 : 1.1 + Math.random() * 1.1,
+                hub: isHub,
+                warm: isHub && Math.random() < 0.5,
+                pulsePhase: Math.random() * Math.PI * 2,
+            };
+        });
+
+        let t = 0;
 
         function tick() {
+            t += 0.016;
             ctx.clearRect(0, 0, w, h);
+
             for (const n of nodes) {
+                // gentle drift toward cursor for a living, reactive feel
+                const dxm = mouse.x - n.x, dym = mouse.y - n.y;
+                const dm = Math.sqrt(dxm * dxm + dym * dym);
+                if (dm < 220) {
+                    n.vx += (dxm / dm) * 0.0025;
+                    n.vy += (dym / dm) * 0.0025;
+                }
+                n.vx *= 0.985; n.vy *= 0.985;
                 n.x += n.vx; n.y += n.vy;
-                if (n.x < 0 || n.x > w) n.vx *= -1;
-                if (n.y < 0 || n.y > h) n.vy *= -1;
+                if (n.x < -20 || n.x > w + 20) n.vx *= -1;
+                if (n.y < -20 || n.y > h + 20) n.vy *= -1;
             }
+
+            // connections
             for (let i = 0; i < nodes.length; i++) {
                 for (let j = i + 1; j < nodes.length; j++) {
                     const dx = nodes[i].x - nodes[j].x;
                     const dy = nodes[i].y - nodes[j].y;
                     const dist = Math.sqrt(dx * dx + dy * dy);
-                    if (dist < 140) {
-                        ctx.strokeStyle = 'rgba(79,168,255,' + (1 - dist / 140) * 0.35 + ')';
-                        ctx.lineWidth = 1;
+                    if (dist < 150) {
+                        const alpha = (1 - dist / 150) * 0.32;
+                        const grad = ctx.createLinearGradient(nodes[i].x, nodes[i].y, nodes[j].x, nodes[j].y);
+                        grad.addColorStop(0, 'rgba(79,168,255,' + alpha + ')');
+                        grad.addColorStop(1, 'rgba(142,197,255,' + alpha + ')');
+                        ctx.strokeStyle = grad;
+                        ctx.lineWidth = 0.8;
                         ctx.beginPath();
                         ctx.moveTo(nodes[i].x, nodes[i].y);
                         ctx.lineTo(nodes[j].x, nodes[j].y);
@@ -210,12 +249,22 @@ def render_neuron_background():
                     }
                 }
             }
+
+            // nodes with soft glow
             for (const n of nodes) {
+                const pulse = 0.75 + 0.25 * Math.sin(t * 1.5 + n.pulsePhase);
+                const color = n.warm ? '224,225,235' : '110,180,255';
+
+                ctx.save();
+                ctx.shadowBlur = n.hub ? 14 : 6;
+                ctx.shadowColor = 'rgba(' + color + ',0.9)';
                 ctx.beginPath();
-                ctx.arc(n.x, n.y, 2.2, 0, Math.PI * 2);
-                ctx.fillStyle = 'rgba(142,197,255,0.85)';
+                ctx.arc(n.x, n.y, n.r * pulse, 0, Math.PI * 2);
+                ctx.fillStyle = 'rgba(' + color + ',' + (n.hub ? 0.95 : 0.8) + ')';
                 ctx.fill();
+                ctx.restore();
             }
+
             requestAnimationFrame(tick);
         }
         tick();
