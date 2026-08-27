@@ -267,17 +267,33 @@ def render_neuron_background():
             ctx.fillRect(0, 0, w, h);
 
             for (const n of nodes) {
-                // gentle drift toward cursor for a living, reactive feel
+                // continuous ambient wander so the whole field is always moving,
+                // not just reacting to the cursor
+                n.vx += (Math.random() - 0.5) * 0.02;
+                n.vy += (Math.random() - 0.5) * 0.02;
+
+                // gentle pull toward cursor for a living, reactive feel
                 const dxm = mouse.x - n.x, dym = mouse.y - n.y;
                 const dm = Math.sqrt(dxm * dxm + dym * dym);
                 if (dm < 220) {
-                    n.vx += (dxm / dm) * 0.0025;
-                    n.vy += (dym / dm) * 0.0025;
+                    n.vx += (dxm / dm) * 0.004;
+                    n.vy += (dym / dm) * 0.004;
                 }
-                n.vx *= 0.985; n.vy *= 0.985;
+
+                const maxSpeed = n.hub ? 0.55 : 0.95;
+                const speed = Math.sqrt(n.vx * n.vx + n.vy * n.vy);
+                if (speed > maxSpeed) {
+                    n.vx = (n.vx / speed) * maxSpeed;
+                    n.vy = (n.vy / speed) * maxSpeed;
+                }
+                n.vx *= 0.996; n.vy *= 0.996;
                 n.x += n.vx; n.y += n.vy;
-                if (n.x < -20 || n.x > w + 20) n.vx *= -1;
-                if (n.y < -20 || n.y > h + 20) n.vy *= -1;
+
+                // wrap around edges for continuous, seamless flow
+                if (n.x < -10) n.x = w + 10;
+                if (n.x > w + 10) n.x = -10;
+                if (n.y < -10) n.y = h + 10;
+                if (n.y > h + 10) n.y = -10;
             }
 
             // connections
