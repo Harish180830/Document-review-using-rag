@@ -3,6 +3,7 @@ import fitz  # PyMuPDF
 import pytesseract
 from PIL import Image
 import io
+import re
 import hashlib
 import nltk
 from nltk.tokenize import sent_tokenize
@@ -87,7 +88,31 @@ def extract_pdf_text(file_bytes):
             page_text = pytesseract.image_to_string(img)
         full_text += page_text + "\n"
     doc.close()
-    return full_text
+    return clean_extracted_text(full_text)
+
+
+def clean_extracted_text(text):
+    # Strips table-of-contents dot leaders ("Chapter One .......... 8"),
+    # standalone page-number lines, bare emoji/bullet artifacts, and
+    # excess whitespace that PDF text extraction commonly introduces.
+    lines = text.split("\n")
+    cleaned_lines = []
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if re.search(r"\.{4,}", stripped):          # dot leaders: "....... 12"
+            continue
+        if re.fullmatch(r"[\d\s.]+", stripped):      # pure page numbers / numeric junk
+            continue
+        if re.fullmatch(r"[🔴🟢⚫️⚪️\-–—•.\s]+", stripped):  # stray bullets/emoji-only lines
+            continue
+        if len(stripped) <= 2:                       # single stray characters
+            continue
+        cleaned_lines.append(stripped)
+    cleaned = "\n".join(cleaned_lines)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned
 
 
 @st.cache_resource(show_spinner=False)
@@ -198,6 +223,8 @@ elif st.session_state["nav"] == "Highlights Dashboard":
 
         sentences = sent_tokenize(raw_text)
         sentences = [s.strip() for s in sentences if len(s.split()) > 6]
+        # Drop fragments that are mostly numbers/currency (e.g. leftover price-table rows)
+        sentences = [s for s in sentences if len(re.findall(r"[A-Za-z]", s)) > len(s) * 0.5]
         scored = [(s, analyzer.polarity_scores(s)["compound"]) for s in sentences]
         scored_sorted = sorted(scored, key=lambda x: x[1], reverse=True)
 
@@ -274,7 +301,8 @@ elif st.session_state["nav"] == "Chat with Report":
 
                     answer_prompt = ChatPromptTemplate.from_template(
                         """Answer the question using only the context below from a CSR report.
-If the answer isn't in the context, say you don't have enough information.
+If the context does not contain enough information to answer, reply with exactly
+this one line and nothing else: NOT_FOUND_IN_DOCUMENT
 
 Context:
 {context}
@@ -286,16 +314,38 @@ Answer clearly and concisely:"""
                     answer_chain = answer_prompt | llm | StrOutputParser()
                     raw_answer = answer_chain.invoke({"context": context, "question": query})
 
-                    structure_answer_prompt = ChatPromptTemplate.from_template(
-                        """Rewrite the following answer into clear, well-structured, professional prose,
+                    answered_from_document = "NOT_FOUND_IN_DOCUMENT" not in raw_answer
+
+                    if answered_from_document:
+                        structure_answer_prompt = ChatPromptTemplate.from_template(
+                            """Rewrite the following answer into clear, well-structured, professional prose,
 without changing its meaning or adding new facts:
 
 {raw_answer}"""
-                    )
-                    structure_answer_chain = structure_answer_prompt | llm | StrOutputParser()
-                    final_answer = structure_answer_chain.invoke({"raw_answer": raw_answer})
+                        )
+                        structure_answer_chain = structure_answer_prompt | llm | StrOutputParser()
+                        final_answer = structure_answer_chain.invoke({"raw_answer": raw_answer})
+                    else:
+                        # Fallback: the report doesn't cover this, so answer from the
+                        # model's general knowledge instead of returning a dead end.
+                        general_prompt = ChatPromptTemplate.from_template(
+                            """The uploaded CSR report does not contain information to answer this question.
+Answer it using your own general knowledge instead. Be clear that this is
+general knowledge and not sourced from the uploaded report.
 
-                st.write(final_answer)
+Question: {question}
+
+Answer clearly and concisely:"""
+                        )
+                        general_chain = general_prompt | llm | StrOutputParser()
+                        final_answer = general_chain.invoke({"question": query})
+
+                if answered_from_document:
+                    st.write(final_answer)
+                else:
+                    st.info("Not found in the uploaded report — answering from general knowledge instead:")
+                    st.write(final_answer)
+
                 with st.expander("Show retrieved context"):
                     for i, d in enumerate(retrieved_docs):
                         st.markdown(f"**Chunk {i + 1}:**")
