@@ -14,7 +14,7 @@ from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 
-st.set_page_config(page_title="CSR Report Analyzer", page_icon="🌿", layout="wide")
+st.set_page_config(page_title="Report Analyzer using RAG", page_icon="🌿", layout="wide")
 
 nltk.download('punkt', quiet=True)
 nltk.download('punkt_tab', quiet=True)
@@ -112,7 +112,7 @@ if "nav" not in st.session_state:
 # ---------------- Login gate ----------------
 if not st.session_state["authenticated"]:
     st.markdown('<div class="login-box">', unsafe_allow_html=True)
-    st.markdown("### 🌿 CSR Report Analyzer")
+    st.markdown("### 🌿 Report Analyzer using RAG")
     st.caption("Sign in to continue")
     username = st.text_input("Username")
     password = st.text_input("Password", type="password")
@@ -147,7 +147,7 @@ with st.sidebar:
 # ---------------- Header ----------------
 st.markdown("""
 <div class="main-header">
-    <h1>🌿 CSR Report Analyzer</h1>
+    <h1>🌿 Report Analyzer using RAG</h1>
     <p>Sentiment-driven highlights + RAG-powered Q&A for sustainability reports</p>
 </div>
 """, unsafe_allow_html=True)
@@ -194,7 +194,7 @@ elif st.session_state["nav"] == "Highlights Dashboard":
     else:
         raw_text = st.session_state["raw_text"]
         file_hash = st.session_state["file_hash"]
-        llm = ChatGroq(groq_api_key=GROQ_API_KEY, model_name="llama-3.3-70b-versatile", temperature=0.2)
+        llm = ChatGroq(groq_api_key=GROQ_API_KEY, model_name="openai/gpt-oss-120b", temperature=0.2)
 
         sentences = sent_tokenize(raw_text)
         sentences = [s.strip() for s in sentences if len(s.split()) > 6]
@@ -253,7 +253,7 @@ elif st.session_state["nav"] == "Chat with Report":
     elif not GROQ_API_KEY:
         st.warning("Enter your Groq API key in the sidebar to continue.")
     else:
-        llm = ChatGroq(groq_api_key=GROQ_API_KEY, model_name="llama-3.3-70b-versatile", temperature=0.2)
+        llm = ChatGroq(groq_api_key=GROQ_API_KEY, model_name="openai/gpt-oss-120b", temperature=0.2)
         vectorstore = st.session_state["vectorstore"]
 
         for role, content in st.session_state["chat_history"]:
