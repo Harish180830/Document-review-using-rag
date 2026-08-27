@@ -16,6 +16,9 @@ from langchain_community.vectorstores import FAISS
 from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
+from groq import AuthenticationError as GroqAuthenticationError
+from groq import RateLimitError as GroqRateLimitError
+from groq import APIError as GroqAPIError
 
 st.set_page_config(page_title="Report Analyzer using RAG", page_icon="🧠", layout="wide")
 
@@ -56,6 +59,32 @@ st.markdown("""
 }
 html, body {
     background: var(--bg-black);
+}
+/* Streamlit paints its own background on these wrapper layers, which sit
+   above the neuron canvas and hide it on every page except the login
+   screen (which happens to have little content over them). Making all of
+   them transparent lets the same neuron-network canvas show through on
+   Upload & Analyze, Highlights Dashboard, and Chat with Report too. */
+[data-testid="stAppViewContainer"],
+[data-testid="stHeader"],
+[data-testid="stToolbar"],
+[data-testid="stBottomBlockContainer"],
+[data-testid="stChatInput"],
+.main,
+.block-container {
+    background: transparent !important;
+}
+[data-testid="stHeader"] {
+    backdrop-filter: none;
+}
+/* the chat input bar needs its own readable panel, since it floats over
+   the canvas at the bottom of the Chat with Report page */
+[data-testid="stChatInput"] {
+    border: 1px solid #4fa8ff33;
+    border-radius: 12px;
+}
+[data-testid="stBottomBlockContainer"] {
+    background: linear-gradient(0deg, rgba(10,24,48,0.92) 0%, rgba(10,24,48,0) 100%) !important;
 }
 
 @keyframes fadeInUp {
@@ -402,6 +431,33 @@ def build_vectorstore(file_hash, text):
     return vs, chunks
 
 
+def safe_invoke(chain, inputs):
+    # Runs a LangChain -> Groq chain and turns Groq's raw API errors into a
+    # friendly, actionable message instead of an unhandled traceback. Returns
+    # None on failure so the caller can bail out of the current render pass.
+    try:
+        return chain.invoke(inputs)
+    except GroqAuthenticationError:
+        st.error(
+            "**Groq API key rejected.** The key in the sidebar is missing, "
+            "malformed, or has been revoked.\n\n"
+            "1. Get a fresh key at [console.groq.com/keys](https://console.groq.com/keys) "
+            "(it should start with `gsk_`).\n"
+            "2. Paste it into the **Groq API Key** field in the sidebar — watch for "
+            "extra spaces or a partially-copied key.\n"
+            "3. Try again."
+        )
+    except GroqRateLimitError:
+        st.error(
+            "**Groq rate limit hit.** Your key has exceeded its current request "
+            "or token quota. Wait a moment and try again, or check your usage at "
+            "[console.groq.com](https://console.groq.com)."
+        )
+    except GroqAPIError as e:
+        st.error(f"**Groq API error.** The request failed: {e}")
+    return None
+
+
 def type_out(text, placeholder, speed=0.012):
     displayed = ""
     for ch in text:
@@ -515,7 +571,14 @@ with st.sidebar:
         index=["Upload & Analyze", "Highlights Dashboard", "Chat with Report"].index(st.session_state["nav"]),
     )
     st.divider()
-    GROQ_API_KEY = st.text_input("Groq API Key", type="password")
+    try:
+        _default_groq_key = st.secrets.get("GROQ_API_KEY", "")
+    except Exception:
+        _default_groq_key = ""
+    GROQ_API_KEY = st.text_input(
+        "Groq API Key", type="password", value=_default_groq_key,
+        help="Get a key at console.groq.com/keys — it should start with 'gsk_'.",
+    ).strip()
     st.divider()
     if st.button("Log out", use_container_width=True):
         for key in ["authenticated", "user", "chat_history"]:
@@ -601,9 +664,12 @@ Rewrite these into two well-structured paragraphs:
 Do not use bullet points. Do not invent facts beyond what is given."""
             )
             structure_chain = structure_prompt | llm | StrOutputParser()
-            highlights = structure_chain.invoke(
-                {"positives": "\n".join(top_positive), "negatives": "\n".join(top_negative)}
+            highlights = safe_invoke(
+                structure_chain,
+                {"positives": "\n".join(top_positive), "negatives": "\n".join(top_negative)},
             )
+            if highlights is None:
+                st.stop()
             st.session_state["highlights"] = highlights
             st.session_state["top_positive"] = top_positive
             st.session_state["top_negative"] = top_negative
@@ -665,7 +731,9 @@ Question: {question}
 Answer clearly and concisely:"""
                     )
                     answer_chain = answer_prompt | llm | StrOutputParser()
-                    raw_answer = answer_chain.invoke({"context": context, "question": query})
+                    raw_answer = safe_invoke(answer_chain, {"context": context, "question": query})
+                    if raw_answer is None:
+                        st.stop()
 
                     answered_from_document = "NOT_FOUND_IN_DOCUMENT" not in raw_answer
 
@@ -677,7 +745,9 @@ without changing its meaning or adding new facts:
 {raw_answer}"""
                         )
                         structure_answer_chain = structure_answer_prompt | llm | StrOutputParser()
-                        final_answer = structure_answer_chain.invoke({"raw_answer": raw_answer})
+                        final_answer = safe_invoke(structure_answer_chain, {"raw_answer": raw_answer})
+                        if final_answer is None:
+                            st.stop()
                     else:
                         # Fallback: the report doesn't cover this, so answer from the
                         # model's general knowledge instead of returning a dead end.
@@ -691,7 +761,9 @@ Question: {question}
 Answer clearly and concisely:"""
                         )
                         general_chain = general_prompt | llm | StrOutputParser()
-                        final_answer = general_chain.invoke({"question": query})
+                        final_answer = safe_invoke(general_chain, {"question": query})
+                        if final_answer is None:
+                            st.stop()
 
                 if not answered_from_document:
                     st.info("Not found in the uploaded report — answering from general knowledge instead:")
