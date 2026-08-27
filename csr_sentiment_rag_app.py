@@ -200,10 +200,12 @@ section[data-testid="stSidebar"] {
 
 
 def render_neuron_background():
-    # Injects an animated neural-network canvas as a fixed full-page background
-    # by breaking out into the parent document (Streamlit iframes are same-origin).
-    # Glowing nodes of varied size, soft gradient connections, and gentle
-    # mouse-reactive drift for a more polished, "premium" feel.
+    # Injects the same animated neural-network canvas used on the portfolio site,
+    # as a fixed full-page background, by breaking out into the parent document
+    # (Streamlit iframes are same-origin). Ported 1:1 from the portfolio's
+    # #netCanvas script: drifting nodes, distance-based link lines, occasional
+    # traveling signal pulses, a scroll-pause optimization, a reduced-motion
+    # fallback, and a lighter/fps-capped mode on touch devices.
     components.html("""
     <script>
     (function() {
@@ -221,102 +223,63 @@ def render_neuron_background():
         canvas.style.pointerEvents = 'none';
         canvas.style.opacity = '0';
         canvas.style.transition = 'opacity 1s ease';
+        canvas.style.background =
+            'radial-gradient(ellipse 90% 60% at 50% 0%, #0a1c3d 0%, #050d1f 45%, #000000 100%)';
         doc.body.appendChild(canvas);
         requestAnimationFrame(() => { canvas.style.opacity = '1'; });
 
         const ctx = canvas.getContext('2d');
-        let w, h, nodes, bgGradient;
-        const mouse = { x: -9999, y: -9999 };
+        const win = window.parent;
+        const reduceMotion = win.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        const isMobile = win.matchMedia('(pointer:coarse)').matches;
+        let W, H, nodes, pulses = [];
+        const LINK_DIST = isMobile ? 110 : 150;
+        let scrolling = false, scrollTimer = null;
+        win.addEventListener('scroll', () => {
+            scrolling = true;
+            clearTimeout(scrollTimer);
+            scrollTimer = setTimeout(() => { scrolling = false; }, 120);
+        }, {passive: true});
 
-        function buildGradient() {
-            bgGradient = ctx.createLinearGradient(0, 0, w, h);
-            bgGradient.addColorStop(0, '#0a1830');
-            bgGradient.addColorStop(0.5, '#0d2450');
-            bgGradient.addColorStop(1, '#0a1a38');
+        function sizeCanvas() {
+            W = canvas.width = win.innerWidth;
+            H = canvas.height = win.innerHeight;
+            const count = isMobile
+                ? Math.max(24, Math.min(45, Math.round((W * H) / 22000)))
+                : Math.max(40, Math.min(90, Math.round((W * H) / 14000)));
+            nodes = Array.from({length: count}, () => ({
+                x: Math.random() * W,
+                y: Math.random() * H,
+                vx: (Math.random() - 0.5) * 0.32,
+                vy: (Math.random() - 0.5) * 0.32,
+                r: Math.random() * 2 + 1.3,
+                white: Math.random() < 0.16
+            }));
+        }
+        win.addEventListener('resize', sizeCanvas);
+        sizeCanvas();
+
+        function spawnPulse() {
+            if (nodes.length < 2) return;
+            const a = nodes[Math.floor(Math.random() * nodes.length)];
+            const candidates = nodes.filter(n => n !== a && Math.hypot(n.x - a.x, n.y - a.y) < LINK_DIST);
+            if (!candidates.length) return;
+            const b = candidates[Math.floor(Math.random() * candidates.length)];
+            pulses.push({a, b, t: 0, speed: 0.012 + Math.random() * 0.01});
         }
 
-        function resize() {
-            const dpr = window.parent.devicePixelRatio || 1;
-            w = window.parent.innerWidth;
-            h = window.parent.innerHeight;
-            canvas.width = w * dpr;
-            canvas.height = h * dpr;
-            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-            buildGradient();
-        }
-        resize();
-        window.parent.addEventListener('resize', resize);
-        window.parent.document.addEventListener('mousemove', (e) => {
-            mouse.x = e.clientX;
-            mouse.y = e.clientY;
-        });
+        function draw() {
+            ctx.clearRect(0, 0, W, H);
 
-        const NODE_COUNT = 65;
-        const HUB_RATIO = 0.14;  // fraction of nodes rendered as larger glowing hubs
-        nodes = Array.from({length: NODE_COUNT}, () => {
-            const isHub = Math.random() < HUB_RATIO;
-            return {
-                x: Math.random() * w,
-                y: Math.random() * h,
-                vx: (Math.random() - 0.5) * (isHub ? 0.12 : 0.3),
-                vy: (Math.random() - 0.5) * (isHub ? 0.12 : 0.3),
-                r: isHub ? 3 + Math.random() * 1.8 : 1.1 + Math.random() * 1.1,
-                hub: isHub,
-                warm: isHub && Math.random() < 0.5,
-                pulsePhase: Math.random() * Math.PI * 2,
-            };
-        });
-
-        let t = 0;
-
-        function tick() {
-            t += 0.016;
-            ctx.fillStyle = bgGradient;
-            ctx.fillRect(0, 0, w, h);
-
-            for (const n of nodes) {
-                // continuous ambient wander so the whole field is always moving,
-                // not just reacting to the cursor
-                n.vx += (Math.random() - 0.5) * 0.02;
-                n.vy += (Math.random() - 0.5) * 0.02;
-
-                // gentle pull toward cursor for a living, reactive feel
-                const dxm = mouse.x - n.x, dym = mouse.y - n.y;
-                const dm = Math.sqrt(dxm * dxm + dym * dym);
-                if (dm < 220) {
-                    n.vx += (dxm / dm) * 0.004;
-                    n.vy += (dym / dm) * 0.004;
-                }
-
-                const maxSpeed = n.hub ? 0.55 : 0.95;
-                const speed = Math.sqrt(n.vx * n.vx + n.vy * n.vy);
-                if (speed > maxSpeed) {
-                    n.vx = (n.vx / speed) * maxSpeed;
-                    n.vy = (n.vy / speed) * maxSpeed;
-                }
-                n.vx *= 0.996; n.vy *= 0.996;
-                n.x += n.vx; n.y += n.vy;
-
-                // wrap around edges for continuous, seamless flow
-                if (n.x < -10) n.x = w + 10;
-                if (n.x > w + 10) n.x = -10;
-                if (n.y < -10) n.y = h + 10;
-                if (n.y > h + 10) n.y = -10;
-            }
-
-            // connections
+            if (!scrolling)
             for (let i = 0; i < nodes.length; i++) {
                 for (let j = i + 1; j < nodes.length; j++) {
-                    const dx = nodes[i].x - nodes[j].x;
-                    const dy = nodes[i].y - nodes[j].y;
-                    const dist = Math.sqrt(dx * dx + dy * dy);
-                    if (dist < 150) {
-                        const alpha = (1 - dist / 150) * 0.32;
-                        const grad = ctx.createLinearGradient(nodes[i].x, nodes[i].y, nodes[j].x, nodes[j].y);
-                        grad.addColorStop(0, 'rgba(79,168,255,' + alpha + ')');
-                        grad.addColorStop(1, 'rgba(142,197,255,' + alpha + ')');
-                        ctx.strokeStyle = grad;
-                        ctx.lineWidth = 0.8;
+                    const dx = nodes[i].x - nodes[j].x, dy = nodes[i].y - nodes[j].y;
+                    const dist = Math.hypot(dx, dy);
+                    if (dist < LINK_DIST) {
+                        const op = (1 - dist / LINK_DIST) * 0.75;
+                        ctx.strokeStyle = `rgba(100,175,255,${op})`;
+                        ctx.lineWidth = 1.1;
                         ctx.beginPath();
                         ctx.moveTo(nodes[i].x, nodes[i].y);
                         ctx.lineTo(nodes[j].x, nodes[j].y);
@@ -325,24 +288,54 @@ def render_neuron_background():
                 }
             }
 
-            // nodes with soft glow
-            for (const n of nodes) {
-                const pulse = 0.75 + 0.25 * Math.sin(t * 1.5 + n.pulsePhase);
-                const color = n.warm ? '224,225,235' : '110,180,255';
-
-                ctx.save();
-                ctx.shadowBlur = n.hub ? 14 : 6;
-                ctx.shadowColor = 'rgba(' + color + ',0.9)';
+            nodes.forEach(n => {
                 ctx.beginPath();
-                ctx.arc(n.x, n.y, n.r * pulse, 0, Math.PI * 2);
-                ctx.fillStyle = 'rgba(' + color + ',' + (n.hub ? 0.95 : 0.8) + ')';
+                ctx.fillStyle = n.white ? 'rgba(255,255,255,0.35)' : 'rgba(110,180,255,0.35)';
+                ctx.arc(n.x, n.y, n.r * 2.2, 0, Math.PI * 2);
                 ctx.fill();
-                ctx.restore();
-            }
 
-            requestAnimationFrame(tick);
+                ctx.beginPath();
+                ctx.fillStyle = n.white ? 'rgba(255,255,255,0.95)' : 'rgba(110,180,255,0.95)';
+                ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2);
+                ctx.fill();
+
+                if (!reduceMotion && !scrolling) {
+                    n.x += n.vx; n.y += n.vy;
+                    if (n.x < 0 || n.x > W) n.vx *= -1;
+                    if (n.y < 0 || n.y > H) n.vy *= -1;
+                }
+            });
+
+            if (!isMobile) pulses.forEach(p => {
+                const x = p.a.x + (p.b.x - p.a.x) * p.t;
+                const y = p.a.y + (p.b.y - p.a.y) * p.t;
+                ctx.beginPath();
+                ctx.fillStyle = 'rgba(120,190,255,0.4)';
+                ctx.arc(x, y, 5, 0, Math.PI * 2);
+                ctx.fill();
+
+                ctx.beginPath();
+                ctx.fillStyle = 'rgba(255,255,255,0.95)';
+                ctx.arc(x, y, 2.4, 0, Math.PI * 2);
+                ctx.fill();
+                p.t += p.speed;
+            });
+            pulses = pulses.filter(p => p.t < 1);
+
+            if (!reduceMotion && !isMobile && Math.random() < 0.09) spawnPulse();
         }
-        tick();
+
+        if (reduceMotion) {
+            draw();
+        } else if (isMobile) {
+            let last = 0;
+            (function loop(ts) {
+                if (ts - last > 33) { draw(); last = ts; }
+                win.requestAnimationFrame(loop);
+            })(0);
+        } else {
+            (function loop() { draw(); win.requestAnimationFrame(loop); })();
+        }
     })();
     </script>
     """, height=0)
