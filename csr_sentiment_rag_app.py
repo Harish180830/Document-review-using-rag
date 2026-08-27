@@ -1,9 +1,11 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import fitz  # PyMuPDF
 import pytesseract
 from PIL import Image
 import io
 import re
+import time
 import hashlib
 import nltk
 from nltk.tokenize import sent_tokenize
@@ -15,7 +17,7 @@ from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 
-st.set_page_config(page_title="Report Analyzer using RAG", page_icon="🌿", layout="wide")
+st.set_page_config(page_title="Report Analyzer using RAG", page_icon="🧠", layout="wide")
 
 nltk.download('punkt', quiet=True)
 nltk.download('punkt_tab', quiet=True)
@@ -28,44 +30,201 @@ USERS = {
     "harish": "welcome123",
 }
 
-# ---------------- Custom CSS ----------------
+# ---------------- Theme: blue / black / white, neuron-network motif ----------------
 st.markdown("""
 <style>
-.main-header {
-    background: linear-gradient(90deg, #0f9d58 0%, #34a853 50%, #0b8043 100%);
-    padding: 1.6rem 2rem;
-    border-radius: 14px;
-    color: white;
-    margin-bottom: 1.5rem;
+:root {
+    --bg-black: #05070d;
+    --bg-panel: #0b101c;
+    --blue-deep: #0d47a1;
+    --blue-mid: #1565c0;
+    --blue-bright: #4fa8ff;
+    --blue-glow: #8ec5ff;
+    --white: #f4f7fb;
+    --white-dim: #c7d0e0;
 }
-.main-header h1 { margin: 0; font-size: 2rem; }
-.main-header p { margin: 0.3rem 0 0 0; opacity: 0.9; }
+
+.stApp {
+    background: radial-gradient(circle at 20% 20%, #0a0f1c 0%, #05070d 55%, #030408 100%);
+    color: var(--white);
+}
+
+@keyframes fadeInUp {
+    from { opacity: 0; transform: translateY(14px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes pulseGlow {
+    0%, 100% { box-shadow: 0 0 0px #4fa8ff33; }
+    50%      { box-shadow: 0 0 18px #4fa8ff66; }
+}
+@keyframes gradientShift {
+    0%   { background-position: 0% 50%; }
+    50%  { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+}
+@keyframes typingDots {
+    0%, 20%  { opacity: 0.2; }
+    50%      { opacity: 1; }
+    100%     { opacity: 0.2; }
+}
+
+.main-header {
+    background: linear-gradient(120deg, #030712 0%, #0d47a1 45%, #1565c0 75%, #030712 100%);
+    background-size: 220% 220%;
+    animation: gradientShift 10s ease infinite, fadeInUp 0.7s ease;
+    padding: 1.7rem 2.2rem;
+    border-radius: 16px;
+    color: var(--white);
+    border: 1px solid #4fa8ff33;
+    margin-bottom: 1.6rem;
+}
+.main-header h1 { margin: 0; font-size: 2.1rem; letter-spacing: 0.3px; }
+.main-header p { margin: 0.35rem 0 0 0; color: var(--white-dim); }
 
 .card {
-    background: #ffffff10;
-    border: 1px solid #ffffff20;
+    background: linear-gradient(180deg, #0b101c 0%, #0a0e18 100%);
+    border: 1px solid #4fa8ff2a;
     border-radius: 14px;
     padding: 1.2rem 1.4rem;
     margin-bottom: 1rem;
+    animation: fadeInUp 0.5s ease;
+    transition: border-color 0.25s ease, transform 0.25s ease;
 }
+.card:hover {
+    border-color: #4fa8ff66;
+    transform: translateY(-2px);
+}
+
 .badge-positive {
-    background: #0f9d5822; color: #34a853; border: 1px solid #34a85355;
-    padding: 3px 10px; border-radius: 999px; font-size: 0.8rem; font-weight: 600;
+    background: #1565c022; color: #4fa8ff; border: 1px solid #4fa8ff55;
+    padding: 3px 12px; border-radius: 999px; font-size: 0.8rem; font-weight: 600;
+    animation: pulseGlow 3s ease-in-out infinite;
 }
 .badge-negative {
-    background: #ea433622; color: #ea4335; border: 1px solid #ea433555;
-    padding: 3px 10px; border-radius: 999px; font-size: 0.8rem; font-weight: 600;
+    background: #ea433618; color: #ff8a80; border: 1px solid #ea433655;
+    padding: 3px 12px; border-radius: 999px; font-size: 0.8rem; font-weight: 600;
+    animation: pulseGlow 3s ease-in-out infinite;
 }
+
 .login-box {
-    max-width: 420px;
+    max-width: 430px;
     margin: 4rem auto;
-    padding: 2.2rem;
-    border-radius: 16px;
-    border: 1px solid #ffffff22;
-    background: #ffffff08;
+    padding: 2.4rem;
+    border-radius: 18px;
+    border: 1px solid #4fa8ff40;
+    background: linear-gradient(180deg, #0b101cdd 0%, #05070dee 100%);
+    backdrop-filter: blur(6px);
+    animation: fadeInUp 0.8s ease, pulseGlow 4s ease-in-out infinite;
+    text-align: center;
+}
+.login-box h3 { color: var(--white); margin-bottom: 0.2rem; }
+.login-caption { color: var(--white-dim); font-size: 0.85rem; }
+
+section[data-testid="stSidebar"] {
+    background: linear-gradient(180deg, #05070d 0%, #0a0f1c 100%);
+    border-right: 1px solid #4fa8ff22;
+}
+
+.stButton > button {
+    background: linear-gradient(120deg, #0d47a1, #1565c0);
+    color: white;
+    border: 1px solid #4fa8ff55;
+    border-radius: 10px;
+    transition: all 0.2s ease;
+}
+.stButton > button:hover {
+    border-color: #8ec5ff;
+    box-shadow: 0 0 14px #4fa8ff55;
+    transform: translateY(-1px);
+}
+
+[data-testid="stMetric"] {
+    background: #0b101c;
+    border: 1px solid #4fa8ff2a;
+    border-radius: 12px;
+    padding: 0.8rem;
+    animation: fadeInUp 0.6s ease;
 }
 </style>
 """, unsafe_allow_html=True)
+
+
+def render_neuron_background():
+    # Injects an animated neural-network canvas as a fixed full-page background
+    # by breaking out into the parent document (Streamlit iframes are same-origin).
+    components.html("""
+    <script>
+    (function() {
+        const doc = window.parent.document;
+        if (doc.getElementById('neuron-bg-canvas')) return;
+
+        const canvas = doc.createElement('canvas');
+        canvas.id = 'neuron-bg-canvas';
+        canvas.style.position = 'fixed';
+        canvas.style.top = '0';
+        canvas.style.left = '0';
+        canvas.style.width = '100vw';
+        canvas.style.height = '100vh';
+        canvas.style.zIndex = '-1';
+        canvas.style.pointerEvents = 'none';
+        canvas.style.opacity = '0.55';
+        doc.body.appendChild(canvas);
+
+        const ctx = canvas.getContext('2d');
+        let w, h, nodes;
+
+        function resize() {
+            w = canvas.width = window.parent.innerWidth;
+            h = canvas.height = window.parent.innerHeight;
+        }
+        resize();
+        window.parent.addEventListener('resize', resize);
+
+        const NODE_COUNT = 70;
+        nodes = Array.from({length: NODE_COUNT}, () => ({
+            x: Math.random() * w,
+            y: Math.random() * h,
+            vx: (Math.random() - 0.5) * 0.35,
+            vy: (Math.random() - 0.5) * 0.35,
+        }));
+
+        function tick() {
+            ctx.clearRect(0, 0, w, h);
+            for (const n of nodes) {
+                n.x += n.vx; n.y += n.vy;
+                if (n.x < 0 || n.x > w) n.vx *= -1;
+                if (n.y < 0 || n.y > h) n.vy *= -1;
+            }
+            for (let i = 0; i < nodes.length; i++) {
+                for (let j = i + 1; j < nodes.length; j++) {
+                    const dx = nodes[i].x - nodes[j].x;
+                    const dy = nodes[i].y - nodes[j].y;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+                    if (dist < 140) {
+                        ctx.strokeStyle = 'rgba(79,168,255,' + (1 - dist / 140) * 0.35 + ')';
+                        ctx.lineWidth = 1;
+                        ctx.beginPath();
+                        ctx.moveTo(nodes[i].x, nodes[i].y);
+                        ctx.lineTo(nodes[j].x, nodes[j].y);
+                        ctx.stroke();
+                    }
+                }
+            }
+            for (const n of nodes) {
+                ctx.beginPath();
+                ctx.arc(n.x, n.y, 2.2, 0, Math.PI * 2);
+                ctx.fillStyle = 'rgba(142,197,255,0.85)';
+                ctx.fill();
+            }
+            requestAnimationFrame(tick);
+        }
+        tick();
+    })();
+    </script>
+    """, height=0)
+
+
+render_neuron_background()
 
 analyzer = SentimentIntensityAnalyzer()
 
@@ -74,21 +233,6 @@ analyzer = SentimentIntensityAnalyzer()
 @st.cache_resource(show_spinner=False)
 def load_embedder():
     return HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
-
-
-@st.cache_data(show_spinner=False)
-def extract_pdf_text(file_bytes):
-    doc = fitz.open(stream=file_bytes, filetype="pdf")
-    full_text = ""
-    for page in doc:
-        page_text = page.get_text()
-        if len(page_text.strip()) < 20:
-            pix = page.get_pixmap(dpi=200)
-            img = Image.open(io.BytesIO(pix.tobytes("png")))
-            page_text = pytesseract.image_to_string(img)
-        full_text += page_text + "\n"
-    doc.close()
-    return clean_extracted_text(full_text)
 
 
 def clean_extracted_text(text):
@@ -115,6 +259,21 @@ def clean_extracted_text(text):
     return cleaned
 
 
+@st.cache_data(show_spinner=False)
+def extract_pdf_text(file_bytes):
+    doc = fitz.open(stream=file_bytes, filetype="pdf")
+    full_text = ""
+    for page in doc:
+        page_text = page.get_text()
+        if len(page_text.strip()) < 20:
+            pix = page.get_pixmap(dpi=200)
+            img = Image.open(io.BytesIO(pix.tobytes("png")))
+            page_text = pytesseract.image_to_string(img)
+        full_text += page_text + "\n"
+    doc.close()
+    return clean_extracted_text(full_text)
+
+
 @st.cache_resource(show_spinner=False)
 def build_vectorstore(file_hash, text):
     splitter = RecursiveCharacterTextSplitter(
@@ -124,6 +283,14 @@ def build_vectorstore(file_hash, text):
     embedder = load_embedder()
     vs = FAISS.from_texts(chunks, embedder)
     return vs, chunks
+
+
+def type_out(text, placeholder, speed=0.012):
+    displayed = ""
+    for ch in text:
+        displayed += ch
+        placeholder.markdown(displayed)
+        time.sleep(speed)
 
 
 # ---------------- Session state defaults ----------------
@@ -137,8 +304,8 @@ if "nav" not in st.session_state:
 # ---------------- Login gate ----------------
 if not st.session_state["authenticated"]:
     st.markdown('<div class="login-box">', unsafe_allow_html=True)
-    st.markdown("### 🌿 Report Analyzer using RAG")
-    st.caption("Sign in to continue")
+    st.markdown("### 🧠 Report Analyzer using RAG")
+    st.markdown('<p class="login-caption">Neural document intelligence — sign in to continue</p>', unsafe_allow_html=True)
     username = st.text_input("Username")
     password = st.text_input("Password", type="password")
     login_clicked = st.button("Log in", use_container_width=True)
@@ -149,7 +316,7 @@ if not st.session_state["authenticated"]:
             st.rerun()
         else:
             st.error("Invalid username or password.")
-    st.caption("Demo login — username: `harish`, password: `welcome123`")
+    st.markdown('<p class="login-caption">Demo login — username: harish · password: welcome123</p>', unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
     st.stop()
 
@@ -172,7 +339,7 @@ with st.sidebar:
 # ---------------- Header ----------------
 st.markdown("""
 <div class="main-header">
-    <h1>🌿 Report Analyzer using RAG</h1>
+    <h1>🧠 Report Analyzer using RAG</h1>
     <p>Sentiment-driven highlights + RAG-powered Q&A for sustainability reports</p>
 </div>
 """, unsafe_allow_html=True)
@@ -203,7 +370,7 @@ if st.session_state["nav"] == "Upload & Analyze":
         col1, col2, col3 = st.columns(3)
         col1.metric("Chunks indexed", len(chunks))
         col2.metric("Report", uploaded_file.name[:22] + ("..." if len(uploaded_file.name) > 22 else ""))
-        col3.metric("Status", "Ready ✅")
+        col3.metric("Status", "Ready")
 
         st.success("Report processed. Head to **Highlights Dashboard** or **Chat with Report** from the sidebar.")
 
@@ -261,13 +428,13 @@ Do not use bullet points. Do not invent facts beyond what is given."""
             st.markdown('<span class="badge-positive">TOP POSITIVES</span>', unsafe_allow_html=True)
             st.markdown('<div class="card">', unsafe_allow_html=True)
             for s in st.session_state["top_positive"]:
-                st.write("🟢", s)
+                st.write("•", s)
             st.markdown('</div>', unsafe_allow_html=True)
         with coln:
             st.markdown('<span class="badge-negative">TOP CONCERNS</span>', unsafe_allow_html=True)
             st.markdown('<div class="card">', unsafe_allow_html=True)
             for s in st.session_state["top_negative"]:
-                st.write("🔴", s)
+                st.write("•", s)
             st.markdown('</div>', unsafe_allow_html=True)
 
         st.subheader("Structured Summary")
@@ -340,11 +507,11 @@ Answer clearly and concisely:"""
                         general_chain = general_prompt | llm | StrOutputParser()
                         final_answer = general_chain.invoke({"question": query})
 
-                if answered_from_document:
-                    st.write(final_answer)
-                else:
+                if not answered_from_document:
                     st.info("Not found in the uploaded report — answering from general knowledge instead:")
-                    st.write(final_answer)
+
+                answer_placeholder = st.empty()
+                type_out(final_answer, answer_placeholder)
 
                 with st.expander("Show retrieved context"):
                     for i, d in enumerate(retrieved_docs):
