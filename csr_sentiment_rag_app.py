@@ -14,13 +14,58 @@ from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 
-st.set_page_config(page_title="CSR Report Analyzer", layout="wide")
+st.set_page_config(page_title="CSR Report Analyzer", page_icon="🌿", layout="wide")
 
 nltk.download('punkt', quiet=True)
 nltk.download('punkt_tab', quiet=True)
 
-# ---------------- Config ----------------
-GROQ_API_KEY = st.sidebar.text_input("Groq API Key", type="password")
+# ---------------- Demo credentials ----------------
+# NOTE: for a portfolio/demo app only. For real deployment, swap this for
+# st.secrets-backed credentials or a proper auth provider (e.g. Supabase, Auth0).
+USERS = {
+    "admin": "csr@2026",
+    "harish": "welcome123",
+}
+
+# ---------------- Custom CSS ----------------
+st.markdown("""
+<style>
+.main-header {
+    background: linear-gradient(90deg, #0f9d58 0%, #34a853 50%, #0b8043 100%);
+    padding: 1.6rem 2rem;
+    border-radius: 14px;
+    color: white;
+    margin-bottom: 1.5rem;
+}
+.main-header h1 { margin: 0; font-size: 2rem; }
+.main-header p { margin: 0.3rem 0 0 0; opacity: 0.9; }
+
+.card {
+    background: #ffffff10;
+    border: 1px solid #ffffff20;
+    border-radius: 14px;
+    padding: 1.2rem 1.4rem;
+    margin-bottom: 1rem;
+}
+.badge-positive {
+    background: #0f9d5822; color: #34a853; border: 1px solid #34a85355;
+    padding: 3px 10px; border-radius: 999px; font-size: 0.8rem; font-weight: 600;
+}
+.badge-negative {
+    background: #ea433622; color: #ea4335; border: 1px solid #ea433555;
+    padding: 3px 10px; border-radius: 999px; font-size: 0.8rem; font-weight: 600;
+}
+.login-box {
+    max-width: 420px;
+    margin: 4rem auto;
+    padding: 2.2rem;
+    border-radius: 16px;
+    border: 1px solid #ffffff22;
+    background: #ffffff08;
+}
+</style>
+""", unsafe_allow_html=True)
+
 analyzer = SentimentIntensityAnalyzer()
 
 
@@ -56,40 +101,112 @@ def build_vectorstore(file_hash, text):
     return vs, chunks
 
 
-# ---------------- UI ----------------
-st.title("CSR Report Analyzer — Sentiment Highlights + RAG QA")
+# ---------------- Session state defaults ----------------
+if "authenticated" not in st.session_state:
+    st.session_state["authenticated"] = False
+if "chat_history" not in st.session_state:
+    st.session_state["chat_history"] = []
+if "nav" not in st.session_state:
+    st.session_state["nav"] = "Upload & Analyze"
 
-uploaded_file = st.file_uploader("Upload CSR Report (PDF)", type=["pdf"])
+# ---------------- Login gate ----------------
+if not st.session_state["authenticated"]:
+    st.markdown('<div class="login-box">', unsafe_allow_html=True)
+    st.markdown("### 🌿 CSR Report Analyzer")
+    st.caption("Sign in to continue")
+    username = st.text_input("Username")
+    password = st.text_input("Password", type="password")
+    login_clicked = st.button("Log in", use_container_width=True)
+    if login_clicked:
+        if username in USERS and USERS[username] == password:
+            st.session_state["authenticated"] = True
+            st.session_state["user"] = username
+            st.rerun()
+        else:
+            st.error("Invalid username or password.")
+    st.caption("Demo login — username: `harish`, password: `welcome123`")
+    st.markdown('</div>', unsafe_allow_html=True)
+    st.stop()
 
-if uploaded_file and GROQ_API_KEY:
-    file_bytes = uploaded_file.read()
-    file_hash = hashlib.md5(file_bytes).hexdigest()
+# ---------------- Sidebar (post-login) ----------------
+with st.sidebar:
+    st.markdown(f"**Signed in as:** {st.session_state.get('user', 'user')}")
+    st.session_state["nav"] = st.radio(
+        "Navigate",
+        ["Upload & Analyze", "Highlights Dashboard", "Chat with Report"],
+        index=["Upload & Analyze", "Highlights Dashboard", "Chat with Report"].index(st.session_state["nav"]),
+    )
+    st.divider()
+    GROQ_API_KEY = st.text_input("Groq API Key", type="password")
+    st.divider()
+    if st.button("Log out", use_container_width=True):
+        for key in ["authenticated", "user", "chat_history"]:
+            st.session_state.pop(key, None)
+        st.rerun()
 
-    with st.spinner("Reading PDF..."):
-        raw_text = extract_pdf_text(file_bytes)
+# ---------------- Header ----------------
+st.markdown("""
+<div class="main-header">
+    <h1>🌿 CSR Report Analyzer</h1>
+    <p>Sentiment-driven highlights + RAG-powered Q&A for sustainability reports</p>
+</div>
+""", unsafe_allow_html=True)
 
-    with st.spinner("Building retriever..."):
-        vectorstore, chunks = build_vectorstore(file_hash, raw_text)
+# ---------------- Page: Upload & Analyze ----------------
+if st.session_state["nav"] == "Upload & Analyze":
+    uploaded_file = st.file_uploader("Upload CSR Report (PDF)", type=["pdf"])
 
-    llm = ChatGroq(groq_api_key=GROQ_API_KEY, model_name="openai/gpt-oss-20b", temperature=0.2)
+    if uploaded_file and not GROQ_API_KEY:
+        st.warning("Enter your Groq API key in the sidebar to continue.")
 
-    st.success(f"Processed {len(chunks)} chunks from the report.")
+    if uploaded_file and GROQ_API_KEY:
+        file_bytes = uploaded_file.read()
+        file_hash = hashlib.md5(file_bytes).hexdigest()
 
-    # ---------------- Step 1: Sentiment extraction ----------------
-    st.header("Top CSR Highlights & Concerns")
+        with st.spinner("Reading PDF..."):
+            raw_text = extract_pdf_text(file_bytes)
 
-    sentences = sent_tokenize(raw_text)
-    sentences = [s.strip() for s in sentences if len(s.split()) > 6]
+        with st.spinner("Building retriever..."):
+            vectorstore, chunks = build_vectorstore(file_hash, raw_text)
 
-    scored = [(s, analyzer.polarity_scores(s)["compound"]) for s in sentences]
-    scored_sorted = sorted(scored, key=lambda x: x[1], reverse=True)
+        st.session_state["vectorstore"] = vectorstore
+        st.session_state["chunks"] = chunks
+        st.session_state["raw_text"] = raw_text
+        st.session_state["file_hash"] = file_hash
+        st.session_state["file_name"] = uploaded_file.name
 
-    top_positive = [s for s, sc in scored_sorted[:3]]
-    top_negative = [s for s, sc in scored_sorted[-3:]]
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Chunks indexed", len(chunks))
+        col2.metric("Report", uploaded_file.name[:22] + ("..." if len(uploaded_file.name) > 22 else ""))
+        col3.metric("Status", "Ready ✅")
 
-    if st.session_state.get("file_hash") != file_hash:
-        structure_prompt = ChatPromptTemplate.from_template(
-            """You are a CSR report analyst. Below are top positive and negative sentences
+        st.success("Report processed. Head to **Highlights Dashboard** or **Chat with Report** from the sidebar.")
+
+    elif not uploaded_file:
+        st.info("Upload a CSR report PDF to begin.")
+
+# ---------------- Page: Highlights Dashboard ----------------
+elif st.session_state["nav"] == "Highlights Dashboard":
+    if "raw_text" not in st.session_state:
+        st.warning("Upload and process a report first, from **Upload & Analyze**.")
+    elif not GROQ_API_KEY:
+        st.warning("Enter your Groq API key in the sidebar to continue.")
+    else:
+        raw_text = st.session_state["raw_text"]
+        file_hash = st.session_state["file_hash"]
+        llm = ChatGroq(groq_api_key=GROQ_API_KEY, model_name="llama-3.3-70b-versatile", temperature=0.2)
+
+        sentences = sent_tokenize(raw_text)
+        sentences = [s.strip() for s in sentences if len(s.split()) > 6]
+        scored = [(s, analyzer.polarity_scores(s)["compound"]) for s in sentences]
+        scored_sorted = sorted(scored, key=lambda x: x[1], reverse=True)
+
+        top_positive = [s for s, sc in scored_sorted[:3]]
+        top_negative = [s for s, sc in scored_sorted[-3:]]
+
+        if st.session_state.get("highlights_hash") != file_hash:
+            structure_prompt = ChatPromptTemplate.from_template(
+                """You are a CSR report analyst. Below are top positive and negative sentences
 extracted from a company's CSR report using sentiment analysis.
 
 Positive sentences:
@@ -102,35 +219,61 @@ Rewrite these into two well-structured paragraphs:
 1. A paragraph summarizing the top positive CSR highlights, in professional, flowing prose.
 2. A paragraph summarizing the top concerns/negative points, in professional, flowing prose.
 Do not use bullet points. Do not invent facts beyond what is given."""
-        )
-        structure_chain = structure_prompt | llm | StrOutputParser()
-        highlights = structure_chain.invoke(
-            {"positives": "\n".join(top_positive), "negatives": "\n".join(top_negative)}
-        )
-        st.session_state["highlights"] = highlights
-        st.session_state["file_hash"] = file_hash
+            )
+            structure_chain = structure_prompt | llm | StrOutputParser()
+            highlights = structure_chain.invoke(
+                {"positives": "\n".join(top_positive), "negatives": "\n".join(top_negative)}
+            )
+            st.session_state["highlights"] = highlights
+            st.session_state["top_positive"] = top_positive
+            st.session_state["top_negative"] = top_negative
+            st.session_state["highlights_hash"] = file_hash
 
-    st.markdown(st.session_state["highlights"])
+        colp, coln = st.columns(2)
+        with colp:
+            st.markdown('<span class="badge-positive">TOP POSITIVES</span>', unsafe_allow_html=True)
+            st.markdown('<div class="card">', unsafe_allow_html=True)
+            for s in st.session_state["top_positive"]:
+                st.write("🟢", s)
+            st.markdown('</div>', unsafe_allow_html=True)
+        with coln:
+            st.markdown('<span class="badge-negative">TOP CONCERNS</span>', unsafe_allow_html=True)
+            st.markdown('<div class="card">', unsafe_allow_html=True)
+            for s in st.session_state["top_negative"]:
+                st.write("🔴", s)
+            st.markdown('</div>', unsafe_allow_html=True)
 
-    with st.expander("Show raw extracted sentences"):
-        st.subheader("Top 3 Positive")
-        for s in top_positive:
-            st.write("-", s)
-        st.subheader("Top 3 Negative")
-        for s in top_negative:
-            st.write("-", s)
+        st.subheader("Structured Summary")
+        st.markdown(f'<div class="card">{st.session_state["highlights"]}</div>', unsafe_allow_html=True)
 
-    # ---------------- Step 2: RAG QA ----------------
-    st.header("Ask a Question")
-    query = st.text_input("Ask something about this CSR report")
+# ---------------- Page: Chat with Report ----------------
+elif st.session_state["nav"] == "Chat with Report":
+    if "vectorstore" not in st.session_state:
+        st.warning("Upload and process a report first, from **Upload & Analyze**.")
+    elif not GROQ_API_KEY:
+        st.warning("Enter your Groq API key in the sidebar to continue.")
+    else:
+        llm = ChatGroq(groq_api_key=GROQ_API_KEY, model_name="llama-3.3-70b-versatile", temperature=0.2)
+        vectorstore = st.session_state["vectorstore"]
 
-    if query:
-        retriever = vectorstore.as_retriever(search_kwargs={"k": 4})
-        retrieved_docs = retriever.invoke(query)
-        context = "\n\n".join(d.page_content for d in retrieved_docs)
+        for role, content in st.session_state["chat_history"]:
+            with st.chat_message(role):
+                st.write(content)
 
-        answer_prompt = ChatPromptTemplate.from_template(
-            """Answer the question using only the context below from a CSR report.
+        query = st.chat_input("Ask something about this CSR report...")
+        if query:
+            st.session_state["chat_history"].append(("user", query))
+            with st.chat_message("user"):
+                st.write(query)
+
+            with st.chat_message("assistant"):
+                with st.spinner("Retrieving and answering..."):
+                    retriever = vectorstore.as_retriever(search_kwargs={"k": 4})
+                    retrieved_docs = retriever.invoke(query)
+                    context = "\n\n".join(d.page_content for d in retrieved_docs)
+
+                    answer_prompt = ChatPromptTemplate.from_template(
+                        """Answer the question using only the context below from a CSR report.
 If the answer isn't in the context, say you don't have enough information.
 
 Context:
@@ -139,29 +282,23 @@ Context:
 Question: {question}
 
 Answer clearly and concisely:"""
-        )
-        answer_chain = answer_prompt | llm | StrOutputParser()
-        raw_answer = answer_chain.invoke({"context": context, "question": query})
+                    )
+                    answer_chain = answer_prompt | llm | StrOutputParser()
+                    raw_answer = answer_chain.invoke({"context": context, "question": query})
 
-        # ---------------- Step 3: Structure the final answer with the LLM ----------------
-        structure_answer_prompt = ChatPromptTemplate.from_template(
-            """Rewrite the following answer into clear, well-structured, professional prose,
+                    structure_answer_prompt = ChatPromptTemplate.from_template(
+                        """Rewrite the following answer into clear, well-structured, professional prose,
 without changing its meaning or adding new facts:
 
 {raw_answer}"""
-        )
-        structure_answer_chain = structure_answer_prompt | llm | StrOutputParser()
-        final_answer = structure_answer_chain.invoke({"raw_answer": raw_answer})
+                    )
+                    structure_answer_chain = structure_answer_prompt | llm | StrOutputParser()
+                    final_answer = structure_answer_chain.invoke({"raw_answer": raw_answer})
 
-        st.markdown("### Answer")
-        st.write(final_answer)
+                st.write(final_answer)
+                with st.expander("Show retrieved context"):
+                    for i, d in enumerate(retrieved_docs):
+                        st.markdown(f"**Chunk {i + 1}:**")
+                        st.write(d.page_content)
 
-        with st.expander("Show retrieved context"):
-            for i, d in enumerate(retrieved_docs):
-                st.markdown(f"**Chunk {i + 1}:**")
-                st.write(d.page_content)
-
-elif uploaded_file and not GROQ_API_KEY:
-    st.warning("Enter your Groq API key in the sidebar to continue.")
-else:
-    st.info("Upload a CSR report PDF to begin.")
+            st.session_state["chat_history"].append(("assistant", final_answer))
