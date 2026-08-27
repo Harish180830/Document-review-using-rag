@@ -144,35 +144,34 @@ html, body {
     animation: pulseGlow 3s ease-in-out infinite;
 }
 
-.login-shell {
-    max-width: 760px;
-    margin: 3.5rem auto;
-    display: flex;
+/* st.container(key="login_box") renders as .st-key-login_box — the real
+   wrapping element for the centered post-nav login card. The auth
+   navigation itself now lives in the actual left sidebar (a true
+   full-height nav bar), separate from this centered box. */
+div[class*="st-key-login_box"] {
+    max-width: 430px;
+    margin: 4rem auto;
+    padding: 2.4rem;
     border-radius: 18px;
-    overflow: hidden;
     border: 1px solid #4fa8ff40;
     background: linear-gradient(180deg, #0f2340dd 0%, #0a1830ee 100%);
-    backdrop-filter: blur(8px);
-    animation: fadeInUp 0.8s ease, pulseGlow 5s ease-in-out infinite;
-}
-.login-nav-panel {
-    width: 230px;
-    padding: 1.6rem 1.2rem;
-    background: #0a1830cc;
-    border-right: 1px solid #4fa8ff2a;
+    backdrop-filter: blur(6px);
+    animation: fadeInUp 0.8s ease, pulseGlow 4s ease-in-out infinite;
+    text-align: center;
 }
 .login-nav-title {
     display: flex; align-items: center; gap: 8px;
     font-weight: 700; color: var(--white);
     margin-bottom: 1rem; font-size: 1.05rem;
 }
-.login-form-panel {
-    flex: 1;
-    padding: 1.8rem 2rem;
+section[data-testid="stSidebar"] div[role="radiogroup"] {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
 }
 div[role="radiogroup"] > label {
     display: block; width: 100%;
-    padding: 0.55rem 0.9rem; border-radius: 8px; margin-bottom: 6px;
+    padding: 0.55rem 0.9rem; border-radius: 8px; margin-bottom: 0;
     transition: background 0.2s ease, color 0.2s ease;
 }
 div[role="radiogroup"] > label:hover {
@@ -185,18 +184,7 @@ div[role="radiogroup"] > label:has(input:checked) p {
     color: white !important; font-weight: 600;
 }
 
-.login-box {
-    max-width: 430px;
-    margin: 4rem auto;
-    padding: 2.4rem;
-    border-radius: 18px;
-    border: 1px solid #4fa8ff40;
-    background: linear-gradient(180deg, #0f2340dd 0%, #0a1830ee 100%);
-    backdrop-filter: blur(6px);
-    animation: fadeInUp 0.8s ease, pulseGlow 4s ease-in-out infinite;
-    text-align: center;
-}
-.login-box h3 { color: var(--white); margin-bottom: 0.2rem; }
+div[class*="st-key-login_box"] h3 { color: var(--white); margin-bottom: 0.2rem; }
 .login-caption { color: var(--white-dim); font-size: 0.85rem; }
 
 section[data-testid="stSidebar"] {
@@ -479,11 +467,7 @@ if not st.session_state["authenticated"]:
     if "auth_tab" not in st.session_state:
         st.session_state["auth_tab"] = "Login"
 
-    st.markdown('<div class="login-shell">', unsafe_allow_html=True)
-    nav_col, form_col = st.columns([1, 1.7], gap="small")
-
-    with nav_col:
-        st.markdown('<div class="login-nav-panel">', unsafe_allow_html=True)
+    with st.sidebar:
         st.markdown('<div class="login-nav-title">🧠&nbsp; Navigation</div>', unsafe_allow_html=True)
         st.session_state["auth_tab"] = st.radio(
             "auth_nav",
@@ -491,10 +475,8 @@ if not st.session_state["authenticated"]:
             index=["Login", "Create Account", "Forgot Password", "Reset Password"].index(st.session_state["auth_tab"]),
             label_visibility="collapsed",
         )
-        st.markdown('</div>', unsafe_allow_html=True)
 
-    with form_col:
-        st.markdown('<div class="login-form-panel">', unsafe_allow_html=True)
+    with st.container(key="login_box"):
 
         if st.session_state["auth_tab"] == "Login":
             st.markdown("#### Login")
@@ -557,9 +539,6 @@ if not st.session_state["authenticated"]:
                     st.success("Password updated — you can log in now.")
                     st.session_state["auth_tab"] = "Login"
 
-        st.markdown('</div>', unsafe_allow_html=True)
-
-    st.markdown('</div>', unsafe_allow_html=True)
     st.stop()
 
 # ---------------- Sidebar (post-login) ----------------
