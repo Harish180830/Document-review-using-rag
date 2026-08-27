@@ -40,8 +40,8 @@ USERS = get_users_store()
 st.markdown("""
 <style>
 :root {
-    --bg-black: #05070d;
-    --bg-panel: #0b101c;
+    --bg-black: #0a1830;
+    --bg-panel: #0f2440;
     --blue-deep: #0d47a1;
     --blue-mid: #1565c0;
     --blue-bright: #4fa8ff;
@@ -78,7 +78,7 @@ html, body {
 }
 
 .main-header {
-    background: linear-gradient(120deg, #030712 0%, #0d47a1 45%, #1565c0 75%, #030712 100%);
+    background: linear-gradient(120deg, #08152c 0%, #0d47a1 45%, #1565c0 75%, #08152c 100%);
     background-size: 220% 220%;
     animation: gradientShift 10s ease infinite, fadeInUp 0.7s ease;
     padding: 1.7rem 2.2rem;
@@ -91,7 +91,7 @@ html, body {
 .main-header p { margin: 0.35rem 0 0 0; color: var(--white-dim); }
 
 .card {
-    background: linear-gradient(180deg, #0b101c 0%, #0a0e18 100%);
+    background: linear-gradient(180deg, #0f2340 0%, #0c1c34 100%);
     border: 1px solid #4fa8ff2a;
     border-radius: 14px;
     padding: 1.2rem 1.4rem;
@@ -122,14 +122,14 @@ html, body {
     border-radius: 18px;
     overflow: hidden;
     border: 1px solid #4fa8ff40;
-    background: linear-gradient(180deg, #0b101cdd 0%, #05070dee 100%);
+    background: linear-gradient(180deg, #0f2340dd 0%, #0a1830ee 100%);
     backdrop-filter: blur(8px);
     animation: fadeInUp 0.8s ease, pulseGlow 5s ease-in-out infinite;
 }
 .login-nav-panel {
     width: 230px;
     padding: 1.6rem 1.2rem;
-    background: #070a12cc;
+    background: #0a1830cc;
     border-right: 1px solid #4fa8ff2a;
 }
 .login-nav-title {
@@ -162,7 +162,7 @@ div[role="radiogroup"] > label:has(input:checked) p {
     padding: 2.4rem;
     border-radius: 18px;
     border: 1px solid #4fa8ff40;
-    background: linear-gradient(180deg, #0b101cdd 0%, #05070dee 100%);
+    background: linear-gradient(180deg, #0f2340dd 0%, #0a1830ee 100%);
     backdrop-filter: blur(6px);
     animation: fadeInUp 0.8s ease, pulseGlow 4s ease-in-out infinite;
     text-align: center;
@@ -171,7 +171,7 @@ div[role="radiogroup"] > label:has(input:checked) p {
 .login-caption { color: var(--white-dim); font-size: 0.85rem; }
 
 section[data-testid="stSidebar"] {
-    background: linear-gradient(180deg, #05070d 0%, #0a0f1c 100%);
+    background: linear-gradient(180deg, #0a1830 0%, #0f2440 100%);
     border-right: 1px solid #4fa8ff22;
 }
 
@@ -189,7 +189,7 @@ section[data-testid="stSidebar"] {
 }
 
 [data-testid="stMetric"] {
-    background: #0b101c;
+    background: #0f2340;
     border: 1px solid #4fa8ff2a;
     border-radius: 12px;
     padding: 0.8rem;
@@ -225,8 +225,15 @@ def render_neuron_background():
         requestAnimationFrame(() => { canvas.style.opacity = '1'; });
 
         const ctx = canvas.getContext('2d');
-        let w, h, nodes;
+        let w, h, nodes, bgGradient;
         const mouse = { x: -9999, y: -9999 };
+
+        function buildGradient() {
+            bgGradient = ctx.createLinearGradient(0, 0, w, h);
+            bgGradient.addColorStop(0, '#0a1830');
+            bgGradient.addColorStop(0.5, '#0d2450');
+            bgGradient.addColorStop(1, '#0a1a38');
+        }
 
         function resize() {
             const dpr = window.parent.devicePixelRatio || 1;
@@ -235,6 +242,7 @@ def render_neuron_background():
             canvas.width = w * dpr;
             canvas.height = h * dpr;
             ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            buildGradient();
         }
         resize();
         window.parent.addEventListener('resize', resize);
@@ -263,7 +271,7 @@ def render_neuron_background():
 
         function tick() {
             t += 0.016;
-            ctx.fillStyle = '#05070d';
+            ctx.fillStyle = bgGradient;
             ctx.fillRect(0, 0, w, h);
 
             for (const n of nodes) {
