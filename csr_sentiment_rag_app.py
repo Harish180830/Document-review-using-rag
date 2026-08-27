@@ -23,12 +23,18 @@ nltk.download('punkt', quiet=True)
 nltk.download('punkt_tab', quiet=True)
 
 # ---------------- Demo credentials ----------------
-# NOTE: for a portfolio/demo app only. For real deployment, swap this for
-# st.secrets-backed credentials or a proper auth provider (e.g. Supabase, Auth0).
-USERS = {
-    "admin": "csr@2026",
-    "harish": "welcome123",
-}
+# NOTE: for a portfolio/demo app only. Accounts live in server memory for the
+# app's lifetime (shared across all visitors, reset on redeploy) — for real
+# deployment, swap this for a database and a proper auth provider.
+@st.cache_resource
+def get_users_store():
+    return {
+        "admin": "csr@2026",
+        "harish": "welcome123",
+    }
+
+
+USERS = get_users_store()
 
 # ---------------- Theme: blue / black / white, neuron-network motif ----------------
 st.markdown("""
@@ -45,8 +51,11 @@ st.markdown("""
 }
 
 .stApp {
-    background: radial-gradient(circle at 20% 20%, #0a0f1c 0%, #05070d 55%, #030408 100%);
+    background: transparent;
     color: var(--white);
+}
+html, body {
+    background: var(--bg-black);
 }
 
 @keyframes fadeInUp {
@@ -104,6 +113,47 @@ st.markdown("""
     background: #ea433618; color: #ff8a80; border: 1px solid #ea433655;
     padding: 3px 12px; border-radius: 999px; font-size: 0.8rem; font-weight: 600;
     animation: pulseGlow 3s ease-in-out infinite;
+}
+
+.login-shell {
+    max-width: 760px;
+    margin: 3.5rem auto;
+    display: flex;
+    border-radius: 18px;
+    overflow: hidden;
+    border: 1px solid #4fa8ff40;
+    background: linear-gradient(180deg, #0b101cdd 0%, #05070dee 100%);
+    backdrop-filter: blur(8px);
+    animation: fadeInUp 0.8s ease, pulseGlow 5s ease-in-out infinite;
+}
+.login-nav-panel {
+    width: 230px;
+    padding: 1.6rem 1.2rem;
+    background: #070a12cc;
+    border-right: 1px solid #4fa8ff2a;
+}
+.login-nav-title {
+    display: flex; align-items: center; gap: 8px;
+    font-weight: 700; color: var(--white);
+    margin-bottom: 1rem; font-size: 1.05rem;
+}
+.login-form-panel {
+    flex: 1;
+    padding: 1.8rem 2rem;
+}
+div[role="radiogroup"] > label {
+    display: block; width: 100%;
+    padding: 0.55rem 0.9rem; border-radius: 8px; margin-bottom: 6px;
+    transition: background 0.2s ease, color 0.2s ease;
+}
+div[role="radiogroup"] > label:hover {
+    background: #4fa8ff14;
+}
+div[role="radiogroup"] > label:has(input:checked) {
+    background: linear-gradient(120deg, #0d47a1, #1565c0);
+}
+div[role="radiogroup"] > label:has(input:checked) p {
+    color: white !important; font-weight: 600;
 }
 
 .login-box {
@@ -170,9 +220,9 @@ def render_neuron_background():
         canvas.style.zIndex = '-1';
         canvas.style.pointerEvents = 'none';
         canvas.style.opacity = '0';
-        canvas.style.transition = 'opacity 1.4s ease';
+        canvas.style.transition = 'opacity 1s ease';
         doc.body.appendChild(canvas);
-        requestAnimationFrame(() => { canvas.style.opacity = '0.7'; });
+        requestAnimationFrame(() => { canvas.style.opacity = '1'; });
 
         const ctx = canvas.getContext('2d');
         let w, h, nodes;
@@ -213,7 +263,8 @@ def render_neuron_background():
 
         function tick() {
             t += 0.016;
-            ctx.clearRect(0, 0, w, h);
+            ctx.fillStyle = '#05070d';
+            ctx.fillRect(0, 0, w, h);
 
             for (const n of nodes) {
                 // gentle drift toward cursor for a living, reactive feel
@@ -352,20 +403,89 @@ if "nav" not in st.session_state:
 
 # ---------------- Login gate ----------------
 if not st.session_state["authenticated"]:
-    st.markdown('<div class="login-box">', unsafe_allow_html=True)
-    st.markdown("### 🧠 Report Analyzer using RAG")
-    st.markdown('<p class="login-caption">Neural document intelligence — sign in to continue</p>', unsafe_allow_html=True)
-    username = st.text_input("Username")
-    password = st.text_input("Password", type="password")
-    login_clicked = st.button("Log in", use_container_width=True)
-    if login_clicked:
-        if username in USERS and USERS[username] == password:
-            st.session_state["authenticated"] = True
-            st.session_state["user"] = username
-            st.rerun()
-        else:
-            st.error("Invalid username or password.")
-    st.markdown('<p class="login-caption">Demo login — username: harish · password: welcome123</p>', unsafe_allow_html=True)
+    if "auth_tab" not in st.session_state:
+        st.session_state["auth_tab"] = "Login"
+
+    st.markdown('<div class="login-shell">', unsafe_allow_html=True)
+    nav_col, form_col = st.columns([1, 1.7], gap="small")
+
+    with nav_col:
+        st.markdown('<div class="login-nav-panel">', unsafe_allow_html=True)
+        st.markdown('<div class="login-nav-title">🧠&nbsp; Navigation</div>', unsafe_allow_html=True)
+        st.session_state["auth_tab"] = st.radio(
+            "auth_nav",
+            ["Login", "Create Account", "Forgot Password", "Reset Password"],
+            index=["Login", "Create Account", "Forgot Password", "Reset Password"].index(st.session_state["auth_tab"]),
+            label_visibility="collapsed",
+        )
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    with form_col:
+        st.markdown('<div class="login-form-panel">', unsafe_allow_html=True)
+
+        if st.session_state["auth_tab"] == "Login":
+            st.markdown("#### Login")
+            username = st.text_input("Username", placeholder="Your unique username", key="login_user")
+            password = st.text_input("Password", type="password", placeholder="Your password", key="login_pass")
+            if st.button("Login", key="login_btn"):
+                if username in USERS and USERS[username] == password:
+                    st.session_state["authenticated"] = True
+                    st.session_state["user"] = username
+                    st.rerun()
+                else:
+                    st.error("Invalid username or password.")
+            st.markdown('<p class="login-caption">Demo login — username: harish · password: welcome123</p>', unsafe_allow_html=True)
+
+        elif st.session_state["auth_tab"] == "Create Account":
+            st.markdown("#### Create Account")
+            new_user = st.text_input("Username", placeholder="Choose a username", key="create_user")
+            new_pass = st.text_input("Password", type="password", placeholder="Choose a password", key="create_pass")
+            confirm_pass = st.text_input("Confirm Password", type="password", placeholder="Repeat password", key="create_confirm")
+            if st.button("Create Account", key="create_btn"):
+                if not new_user or not new_pass:
+                    st.error("Username and password can't be empty.")
+                elif new_user in USERS:
+                    st.error("That username is already taken.")
+                elif new_pass != confirm_pass:
+                    st.error("Passwords don't match.")
+                else:
+                    USERS[new_user] = new_pass
+                    st.success("Account created — you can log in now.")
+                    st.session_state["auth_tab"] = "Login"
+
+        elif st.session_state["auth_tab"] == "Forgot Password":
+            st.markdown("#### Forgot Password")
+            st.caption("Demo flow — no email verification. Set a new password directly.")
+            fp_user = st.text_input("Username", placeholder="Your unique username", key="fp_user")
+            fp_new = st.text_input("New Password", type="password", placeholder="New password", key="fp_new")
+            fp_confirm = st.text_input("Confirm New Password", type="password", placeholder="Repeat new password", key="fp_confirm")
+            if st.button("Reset Password", key="fp_btn"):
+                if fp_user not in USERS:
+                    st.error("No account found with that username.")
+                elif not fp_new or fp_new != fp_confirm:
+                    st.error("Passwords are empty or don't match.")
+                else:
+                    USERS[fp_user] = fp_new
+                    st.success("Password reset — you can log in now.")
+                    st.session_state["auth_tab"] = "Login"
+
+        elif st.session_state["auth_tab"] == "Reset Password":
+            st.markdown("#### Reset Password")
+            rp_user = st.text_input("Username", placeholder="Your unique username", key="rp_user")
+            rp_old = st.text_input("Current Password", type="password", placeholder="Current password", key="rp_old")
+            rp_new = st.text_input("New Password", type="password", placeholder="New password", key="rp_new")
+            if st.button("Update Password", key="rp_btn"):
+                if rp_user not in USERS or USERS[rp_user] != rp_old:
+                    st.error("Username or current password is incorrect.")
+                elif not rp_new:
+                    st.error("New password can't be empty.")
+                else:
+                    USERS[rp_user] = rp_new
+                    st.success("Password updated — you can log in now.")
+                    st.session_state["auth_tab"] = "Login"
+
+        st.markdown('</div>', unsafe_allow_html=True)
+
     st.markdown('</div>', unsafe_allow_html=True)
     st.stop()
 
